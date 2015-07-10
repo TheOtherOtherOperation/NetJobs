@@ -1,0 +1,6 @@
+tests: 1
+
+test0:
+-timeout: none
+localhost: echo 'hello, world'
+end
