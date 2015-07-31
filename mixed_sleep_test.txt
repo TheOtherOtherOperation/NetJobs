@@ -1,0 +1,11 @@
+# Scheduler mixed sleep test
+Mixed sleep test:
+-generaltimeout: 60s
+-minhosts: all
+172.17.1.59: "python3.4 sleep1.py"
+172.17.1.59: "python3.4 sleep5.py"
+172.17.1.59: "python3.4 sleep10.py"
+172.17.3.83: "python3.4 sleep1.py"
+172.17.3.83: "python3.4 sleep5.py"
+172.17.3.83: "python3.4 sleep10.py"
+end
