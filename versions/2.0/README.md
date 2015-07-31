@@ -2,11 +2,7 @@
 
 Author: Ramon A. Lovato (ramonalovato.com)
 For: DeepStorage, LLC (deepstorage.net)
-<<<<<<< HEAD
 Version: 2.0
-=======
-Version: 1.2
->>>>>>> origin/working
 
 ## Introduction
 NetJobs is a network job synchronizer written in Python. Its primary use is the synchronization of benchmark jobs running on multiple virtual machines on a vLAN. Since VMs typically do not have regular access to the host machine's system clock, NetJobs aims to provide a service for starting jobs on multiple VMs at approximately the same time. True simultaneity under these conditions is impossible, of course, and NetJobs is no exception. Its aim is to reduce the latency between start times, not eliminate it completely.
@@ -104,11 +100,7 @@ When a command initiated by NetJobsAgent returns, its standard output is piped t
 
 ## Version History
 
-<<<<<<< HEAD
 2.0 - Release version. Multiple commands now working as intended. Fixed a bug where sometimes the socket would close before all results had been transmitted.
-=======
-1.2 - Fixed bugs that caused client to hang while waiting for agent results.
->>>>>>> origin/working
 1.1 - Support for comment lines in config file. Input file parser rebuilt from scratch. Support for specifying multiple commands per agent.
 1.0 - Initial release. Timeout values are now transmitted to agents. Agents now recover from errors and return to wait mode if a test is interrupted.
 0.3 - Fixed bug that prevented working on remote machines.
@@ -117,8 +109,4 @@ When a command initiated by NetJobsAgent returns, its standard output is piped t
 
 
 
-<<<<<<< HEAD
 This document was last updated on 07/31/15.
-=======
-This document was last updated on 07/10/15.
->>>>>>> origin/working

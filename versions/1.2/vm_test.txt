@@ -1,0 +1,9 @@
+# Look, it has comments now!
+test0:
+-generaltimeout: none
+-minhosts: 0
+172.17.3.80: "echo 'hello, world .80 1'"
+172.17.3.80: "echo 'hello, world .80 2'"
+172.17.3.83: "echo 'hello, world .83 3'"
+172.17.3.83: "echo 'hello, world .83 4'"
+end

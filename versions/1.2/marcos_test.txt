@@ -1,0 +1,7 @@
+test0:
+-generaltimeout: none
+-minhosts: 0
+localhost: "echo 'hello, world'"
+172.17.0.9: "python3 sleep30.py"
+-timeout: 1s
+end

@@ -1,36 +1,9 @@
+# Look, it has comments now!
 test0:
 -generaltimeout: none
--minhosts: 1
-172.17.3.80: "echo 'hello, world'"
--timeout: 3s
-172.17.3.83: "python3.4 sleep30.py"
--timeout: 3s
-end
-
-test1:
--generaltimeout: 3s
 -minhosts: all
-172.17.3.80: "echo 'hello from test1'"
-172.17.3.83: "echo 'hello from test1'"
-end
-
-test2:
--generaltimeout: 3s
--minhosts: 0
-172.17.3.80: "python3.4 sleep30.py"
-172.17.3.83: "python3.4 sleep30.py"
-end
-
-test3:
--generaltimeout: 3s
--minhosts: all
-172.17.3.80: "python3.4 sleep30.py"
-172.17.3.83: "python3.4 sleep30.py"
--timeout: 5s
-end
-
-test4:
--generaltimeout: none
-172.17.3.83: "echo 'generaltimeout: none' "
-172.17.3.80: "python3.4 sleep
+172.17.1.59: "echo 'hello, world 1.59 1'"
+172.17.1.59: "echo 'hello, world 1.59 2'"
+172.17.3.83: "echo 'hello, world 3.83 3'"
+172.17.3.83: "echo 'hello, world 3.83 4'"
 end

@@ -1,0 +1,9 @@
+# Scheduler DEDISbench test
+DEDISbench test:
+-generaltimeout: 90s
+-minhosts: all
+172.17.1.59: "./dedisbench_test_script"
+172.17.1.59: "./dedisbench_test_script"
+172.17.3.83: "./dedisbench_test_script"
+172.17.3.83: "./dedisbench_test_script"
+end

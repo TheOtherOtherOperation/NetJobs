@@ -1,0 +1,10 @@
+# ignored_test:
+# -generaltimeout: 3s
+# 172.17.3.83: "echo 'bar'"
+# end
+
+no_timeout_test:
+-generaltimeout: none
+172.17.3.83: "echo 'generaltimeout: none success'"
+172.17.3.80: "python3.4 sleep
+end
