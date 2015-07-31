@@ -101,6 +101,7 @@ When a command initiated by NetJobsAgent returns, its standard output is piped t
 ## Version History
 
 2.0 - Release version. Multiple commands now working as intended. Fixed a bug where sometimes the socket would close before all results had been transmitted.
+1.2 - Fixed bugs that caused client to hang while waiting for agent results.
 1.1 - Support for comment lines in config file. Input file parser rebuilt from scratch. Support for specifying multiple commands per agent.
 1.0 - Initial release. Timeout values are now transmitted to agents. Agents now recover from errors and return to wait mode if a test is interrupted.
 0.3 - Fixed bug that prevented working on remote machines.
