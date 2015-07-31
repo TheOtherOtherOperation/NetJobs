@@ -25,17 +25,22 @@ from subprocess import PIPE
 # Must match the scheduler constants of the same names, for obvious reasons.
 AGENT_LISTEN_PORT = 16192
 BUFFER_SIZE = 4096
+SELECT_TIMEOUT = 1
 SOCKET_TIMEOUT = 60
 TIMEOUT_NONE = 0
 SOCKET_DELIMITER = '\t'
-READY_STRING = '// READY //\n'
-START_STRING = '// START //\n'
-KILL_STRING = '// KILL //\n'
-DONE_STRING = '// DONE //\n'
+CONNECTION_CLOSE_DELAY = 3
+READY_STRING = '// READY //'
+START_STRING = '// START //'
+KILL_STRING = '// KILL //'
+DONE_STRING = '// DONE //'
 SUCCESS_STATUS = 'SUCCESS'
 ERROR_STATUS = 'ERROR'
 TIMEOUT_STATUS = 'TIMEOUT'
 KILLED_STATUS = 'KILLED'
+
+# Used to track the number of active subprocesses.
+processcount = 0
 
 #
 # Get run specifications from remote process.
@@ -61,14 +66,17 @@ def get_specs(conn):
 
     while not ready:
         try:
+            # Since the client waits for each setup string to be echoed before
+            # sending the next one, we don't need to lexify the string on newlines
+            # the way we do later when listening to the socket asynchronously.
             receiveBuffer = conn.recv(BUFFER_SIZE)
             conn.sendall(receiveBuffer) # Echo test.
-            receiveString = receiveBuffer.decode('UTF-8')
+            receiveString = receiveBuffer.decode('UTF-8').replace('\n', '')
         except Exception as e:
             print("ERROR: an exception occurred while trying to receive specs: %s" % str(e))
             break
 
-        print('\tReceived: "%s".' % receiveString.replace('\n', ''))
+        print('\tReceived: "%s".' % receiveString)
 
         if receiveString == READY_STRING:
             ready = True
@@ -95,7 +103,7 @@ def get_specs(conn):
                         timeouts.append(timeout)
                         print('\t\t--> Registering timeout: %d second(s).' % timeout)
                         # Check if sosTimeout needs to be updated.
-                        if timeout > sosTimeout:
+                        if not sosTimeout == TIMEOUT_NONE and timeout > sosTimeout:
                             sosTimeout = timeout
                 except ValueError as e:
                     print('ERROR: invalid timeout.')
@@ -121,14 +129,16 @@ def get_specs(conn):
 #
 def start_run(sock, commands, timeouts):
     global subthreads
+    global processcount
 
     results = []
     output = []
+    # The lists should be the same length, but do a sanity check, just in case.
+    processcount = min(len(commands), len(timeouts))
 
     print('\n---RESULTS---\n')
 
-    # The lists should be the same length, but just in case, use the shorter one.
-    for i in range(0, min(len(commands), len(timeouts))):
+    for i in range(0, processcount):
         command = commands[i]
         timeout = timeouts[i]
 
@@ -138,8 +148,8 @@ def start_run(sock, commands, timeouts):
             print('\nERROR: an exception occurred while trying to spawn the subprocess thread for "%s": %s\n'\
                   % (command, str(e)))
         thread = ProcThread(sock, command, timeout, proc)
-        thread.start()
         subthreads.append(thread)
+        thread.start()
 
 #
 # Main.
@@ -158,7 +168,7 @@ def main():
         listenSock.bind(('', listenPort))
         listenSock.listen(1) # Only allow single connection.
     except OSError as e:
-        sys.exit('CRITICAL ERROR: NetJobsAgent failed to initialize: %s.' % str(e))
+        exit('CRITICAL ERROR: NetJobsAgent failed to initialize: %s.' % str(e))
 
     while True:
         print('// NetJobsAgent: listening for scheduler connection on port %d.' \
@@ -186,41 +196,34 @@ def main():
         commands, timeouts = get_specs(sock)
 
         # Spawn the SOSThread.
-        sosThread = SOSThread(sock, sosTimeout)
+        sosThread = SOSThread(sock, sosTimeout, commands, timeouts)
 
-        # Wait for go command.
-        while ready:
-            receiveBuffer = sock.recv(BUFFER_SIZE)
-
-            if receiveBuffer:
-                status = receiveBuffer.decode('UTF-8')
-                if status == START_STRING:
-                    print('Start command received. Beginning run...')
-                    # Start the run.
-                    sosThread.start()
-                    start_run(sock, commands, timeouts)
-                else:
-                    print('ERROR: unknown status received: "%s".' % status)
-                    pass
-                ready = False
+        # Listen for go command.
+        sosThread.start()
 
         # Block until all subprocesses complete.
         for t in subthreads:
             t.join()
 
-        # Notify client to stop listener thread for this agent.
-        try:
-            sock.sendall(bytes(DONE_STRING, 'UTF-8'))
-        except:
-            pass
-
         # Stop SOSThread
         sosThread.stop()
+        sosThread.join()
 
         # Close the connection.
         try:
+            # Wait for any remaining processes.
+            if processcount > 0:
+                while processcount > 0:
+                    time.sleep(0) # Yield.
+            # Notify client to stop listener thread for this agent.
+            print('\nActive processes: %d. Notifying client.\n' % (processcount))
+            sock.sendall(bytes(DONE_STRING + '\n', 'UTF-8'))
+            for i in range(CONNECTION_CLOSE_DELAY):
+                print('Closing connection in %d...' % (CONNECTION_CLOSE_DELAY-i))
+                time.sleep(1)
             sock.close()
-        except:
+        except Exception as e:
+            print(str(e))
             pass
         print('\nConnection closed. Returning to wait mode.\n')
 
@@ -231,48 +234,64 @@ def main():
 class SOSThread(threading.Thread):
     "listens for kill command from client"
 
-    def __init__(self, sock, timeout):
+    def __init__(self, sock, timeout, commandsList, timeoutsList):
         threading.Thread.__init__(self)
         self.running = False
         self.sock = sock
         self.timeout = timeout
+        self.commandsList = commandsList
+        self.timeoutsList = timeoutsList
 
     def run(self):
         self.running = True
+        startTime = time.time()
         try:
             while self.running:
-                ready = select.select([self.sock], [], [], self.timeout)
+                elapsedTime = time.time() - startTime
+                if not self.timeout == TIMEOUT_NONE and elapsedTime >= self.timeout:
+                    self.timeout_handler()
+                    break
+
+                ready = select.select([self.sock], [], [], SELECT_TIMEOUT)
                 if ready[0]:
                     buffer = self.sock.recv(BUFFER_SIZE)
 
                     if buffer:
-                        status = buffer.decode('UTF-8')
-                        if status == KILL_STRING:
-                            print('Run killed by remote client.')
-                            self.stop_and_kill_run()
-                    else:
-                        if self.timeout != None:
-                            raise socket.timeout
+                        commands = buffer.decode('UTF-8').split('\n')
+                        commands = filter(None, commands)
+                        for command in commands:
+                            if command == START_STRING:
+                                print('Start command received. Beginning run...')
+                                start_run(self.sock, self.commandsList, self.timeoutsList)
+                            elif command == KILL_STRING:
+                                print('Run killed by remote client.')
+                                self.stop_and_kill_run()
+                            else:
+                                print('Unknown command received from client:' % command)
         except:
             self.timeout_handler()
 
     def timeout_handler(self):
-        self.running = False
-        try:
-            # Kill all subprocess threads.
-            for thread in subthreads:
-                thread.stop_and_kill_subproc(TIMEOUT_STATUS + SOCKET_DELIMITER)
-        except:
-            pass
+        if self.running:
+            self.running = False
+            print('ERROR: a global timeout occurred for this agent.')
+            try:
+                # Kill all subprocess threads.
+                for thread in subthreads:
+                    thread.stop_and_kill_subproc(TIMEOUT_STATUS + SOCKET_DELIMITER)
+            except:
+                pass
 
     def stop_and_kill_run(self):
-        self.running = False
-        try:
-            # Kill all subprocess threads.
-            for thread in subthreads:
-                thread.stop_and_kill_subproc(KILLED_STATUS + SOCKET_DELIMITER)
-        except:
-            pass
+        if self.running:
+            self.running = False
+            print('Agent killed by remote host.')
+            try:
+                # Kill all subprocess threads.
+                for thread in subthreads:
+                    thread.stop_and_kill_subproc(KILLED_STATUS + SOCKET_DELIMITER)
+            except:
+                pass
 
     def stop(self):
         self.running = False
@@ -294,23 +313,29 @@ class ProcThread(threading.Thread):
         self.result = 'NONE'
 
     def run(self):
+        global processcount
+
         self.running = True
         startTime = time.time()
         try:
             while self.running and self.proc.poll() is None: # Checks returncode attribute.
                 elapsedTime = time.time() - startTime
-                # If timeout exceeded and subprocess is still running.
-                if elapsedTime >= self.timeout:
+                # If timeout exceeded and subprocess is still running. Short-circuits
+                # if self.timeout is None.
+                if not self.timeout == None and elapsedTime >= self.timeout:
                     self.stop_and_kill_subproc(TIMEOUT_STATUS + SOCKET_DELIMITER)
+                # Yield context.
+                time.sleep(0)
         except Exception as e:
             print('ERROR: during subprocess execution: %s.' % str(e))
             self.stop_and_kill_subproc(ERROR_STATUS + SOCKET_DELIMITER + str(e))
 
         self.send_result()
+        processcount -= 1
 
     def send_result(self):
         global results
-
+        
         if self.result == 'NONE':
             output, errors = self.proc.communicate()
             if self.proc.returncode > 0 or errors:
@@ -322,29 +347,34 @@ class ProcThread(threading.Thread):
 
         print('* ' + self.result)
 
+        # Store for logging.
         results[self.command] = self.result
 
         # Check to make sure we're not overrunning the socket buffer.
         if len(self.result) > BUFFER_SIZE:
-            self.result = resultString[:BUFFER_SIZE-1]
+            self.result = self.result[:BUFFER_SIZE-2]
+        # Add the terminating newline.
+        if not self.result[:-1] == '\n':
+            self.result = self.result + '\n'
 
         try:
             self.sock.sendall(bytes(self.result, 'UTF-8'))
         except Exception as e:
             print('NOTICE: an exception was caught during transmission of results: %s.'
                 % str(e))
-            pass
 
     def stop_and_kill_subproc(self, reason):
-        self.running = False
-        try:
-            # Kill the subprocess.
-            self.proc.terminate()
-        except:
-            pass
+        if self.running:
+            self.running = False
+            print('\tCommand "%s" killed.' % self.command)
+            try:
+                # Kill the subprocess.
+                self.proc.terminate()
+            except:
+                pass
 
-        self.result = (name + SOCKET_DELIMITER + self.command + SOCKET_DELIMITER
-            + reason)
+            self.result = (name + SOCKET_DELIMITER + self.command + SOCKET_DELIMITER
+                + reason)
 
 
 # ############################################################################ #

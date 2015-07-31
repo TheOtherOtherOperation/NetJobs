@@ -36,7 +36,7 @@ from enum import Enum
 ARGC_MAX = 3
 ARGS_REGEX = '\-[hsv]+'
 FILE_DELIMITER = ': *'
-TEST_LABEL_REGEX = '^(\w|\.)+ *: *$'
+TEST_LABEL_REGEX = '^[^:]+ *: *$'
 TEST_SPEC_REGEX = '^(\w|\.)+ *: *(\d+ *[hms] *: *)?.*\s*$'
 TEST_TIMEOUT_REGEX = '^\-timeout *: *((\d+ *[hms])|(none))\s*$'
 TEST_GENERAL_TIMEOUT_REGEX = '^\-generaltimeout *: *((\d+ *[hms])|(none))\s*$'
@@ -50,18 +50,16 @@ BUFFER_SIZE = 4096
 SOCKET_TIMEOUT = 60
 SELECT_TIMEOUT = 1
 SOCKET_DELIMITER = '\t'
-READY_STRING = '// READY //\n'
-START_STRING = '// START //\n'
-KILL_STRING = '// KILL //\n'
-DONE_STRING = '// DONE //\n'
+READY_STRING = '// READY //'
+START_STRING = '// START //'
+KILL_STRING = '// KILL //'
+DONE_STRING = '// DONE //'
 SUCCESS_STATUS = 'SUCCESS'
 ERROR_STATUS = 'ERROR'
 TIMEOUT_STATUS = 'TIMEOUT'
 KILLED_STATUS = 'KILLED'
 
-global verbose
 verbose = False
-global simulate
 simulate = False
 
 # ############################################################################ #
@@ -166,7 +164,7 @@ class NetJobs:
                 # Read rest of file.
                 while lines:
                     line = lines.popleft()
-                    tokens = re.split(FILE_DELIMITER, line)
+                    tokens = re.split(FILE_DELIMITER, line, maxsplit=1)
 
                     # Outside test block.
                     if state is State.outsideTest:
@@ -175,7 +173,6 @@ class NetJobs:
                                      '"%s"' % (self.path_in, line))
                         else:
                             target = None
-                            timeout = TIMEOUT_NONE
                             generalTimeout = TIMEOUT_NONE
                             minHosts = MIN_HOSTS_ALL
                             testLabel = tokens[0]
@@ -307,6 +304,8 @@ class NetJobs:
         for target in targets:
             # Create TCP socket. Skip if in simulation mode.
             if not simulate:
+                if verbose:
+                    print('\t\t\tTrying "%s"...' % target, end='')
                 try:
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 except socket.error as e:
@@ -344,7 +343,7 @@ class NetJobs:
                             sys.exit('ERROR: agent %s failed to acknowledge timeout. Terminating.' % target)
 
                     # End of commands/timeouts.
-                    testBytes = bytes(READY_STRING, 'UTF-8')
+                    testBytes = bytes(READY_STRING + '\n', 'UTF-8')
                     sock.sendall(testBytes)
                     response = sock.recv(BUFFER_SIZE)
                     if response != testBytes:
@@ -352,8 +351,11 @@ class NetJobs:
 
                     # Good to go.
                     self.sockets[target] = sock
-                except socket.timeout:
+                    if verbose:
+                        print('\tSuccess!')
+                except socket.timeout as e:
                     self.handle_timeout(target, test, self)
+                    print('ERROR: a socket timeout occurred: %s.' % e)
                 except socket.error as e:
                     sys.exit('ERROR: failed to open connection to socket for target '\
                              '"%s": %s.' % (target, e))
@@ -377,8 +379,12 @@ class NetJobs:
             self.listeners[target] = listener
             listener.start()
 
+        # This is split into two loops to make sure all listener threads are started
+        # before any individual test is allowed to begin. This prevents race conditions
+        # with processes completing and rejoining while some listeners aren't started.
+        for target in list(self.sockets.keys()):
             # Send the start command.
-            sock.sendall(bytes(START_STRING, 'UTF-8'))
+            self.sockets[target].sendall(bytes(START_STRING + '\n', 'UTF-8'))
 
         if verbose:
             print('\t\t...finished.\n')
@@ -467,7 +473,6 @@ class NetJobs:
 
             # Wait for remote agent return status.
             self.wait_for_results(test)
-
             # Clean up.
             self.clean_up(test)
 
@@ -504,8 +509,8 @@ class TestConfig:
                 # Initialize results contents.
                 self.results[target][command] = None
                 # Calculate longest timeout - use for thread.
-                if timeouts[target][command] == None:
-                    timeout = None
+                if timeouts[target][command] == TIMEOUT_NONE:
+                    timeout = TIMEOUT_NONE
                     break
                 else:
                     t = int(timeouts[target][command])
@@ -532,77 +537,81 @@ class ListenThread(threading.Thread):
         self.running = False
 
     def run(self):
-        if self.timeout == TIMEOUT_NONE:
-            self.timeout = None
-
         self.running = True
         startTime = time.time()
         try:
             while self.running:
                 elapsedTime = time.time() - startTime
-
                 # Check for timeout.
-                if self.timeout != None and elapsedTime >= self.timeout:
+                if not self.timeout == TIMEOUT_NONE and elapsedTime >= self.timeout:
                     self.handle_timeout()
                 else:
                     # Wait for result to be transmitted from agent.
                     ready = select.select([self.sock], [], [], SELECT_TIMEOUT)
                     if ready[0]:
-                        buffer = self.sock.recv(BUFFER_SIZE)
+                        buff = self.sock.recv(BUFFER_SIZE)
 
-                        if buffer:
-                            status = buffer.decode('UTF-8')
-                            if status == DONE_STRING:
-                                self.running = False
-                                if verbose:
-                                    print('\t\t\t\t-- %s reported all jobs complete.' % self.target)
-                            else:
-                                self.process_result_string(status)
-        except:
-            self.handle_timeout()
-        
-        self.print_signoff()
+                        if buff:
+                            # In case multiple commands were in the buffer, split them up before
+                            # sending to process_result_string. Filter empty strings.
+                            commands = filter(None, buff.decode('UTF-8').split('\n'))
+                            for command in commands:
+                                self.process_result_string(command)
+                            
+        except Exception as e:
+            print('\t\t\t\t-- NOTICE: while waiting for %s, the following exception occurred: %s.' 
+                % (self.target, str(e)))
+
+        self.update_incomplete_and_print(TIMEOUT_STATUS)
 
     def handle_timeout(self):
-        self.running = False
-        if verbose:
-            print('\t\t\t\t-- %s timed out before completion of all jobs.' % self.target)
-        self.netJobs.handle_timeout(self.target, self.test, self.netJobs)
+        if self.running:
+            self.running = False
+            if verbose:
+                print('\t\t\t\t-- %s timed out before completion of all jobs.' % self.target)
+            self.netJobs.handle_timeout(self.target, self.test, self.netJobs)
 
     def kill(self):
-        self.running = False
-        try:
-            self.sock.sendall(bytes(KILL_STRING, 'UTF-8'))
-        except:
-            pass
+        if self.running:
+            self.running = False
+            if verbose:
+                print('\t\t\t\t-- %s was sent remote kill command.' % self.target)
+            try:
+                self.sock.sendall(bytes(KILL_STRING + '\n', 'UTF-8'))
+            except:
+                pass
 
     def process_result_string(self, message):
         tokens = message.split(SOCKET_DELIMITER)
         count = len(tokens)
 
-        # Messages sent to this method should always have 4 tokens each, even
-        # if some are empty, but check and pad just in case so we don't go out
-        # of bounds.
-        if count < 4:
-            print('NOTICE: insufficient tokens received by process_results().')
-            for i in range(0, 4-count):
-                tokens[4-count] = ''
-        
-        target = tokens[0]
-        command = tokens[1]
-        status = tokens[2]
-        output = tokens[3]
+        if DONE_STRING == message:
+            self.running = False
+            # If any tasks are still incomplete, treat as timeout.
+            if verbose:
+                print('\t\t\t\t-- %s reported all jobs complete.' % self.target)
+        else:
+            if count < 4:
+                # Messages sent here should always have 4 tokens each, even if some
+                # are empty. Check just in case and pad.
+                print('\t\t\t\t-- %s sent an invalid string: %s' % (self.target, message))
+                for i in range(4-count):
+                    tokens.append('')
+            target = tokens[0]
+            command = tokens[1]
+            status = tokens[2]
+            output = tokens[3]
 
-        # Store in test.
-        self.test.results[target][command] = (status, output)
+            # Store in test.
+            self.test.results[target][command] = (status, output)
 
-        # Print.
-        print('\t\t\t%s' % message)
+            # Print.
+            print('\t\t\t%s' % message)
 
-    def print_signoff(self):
+    def update_incomplete_and_print(self, message):
         for command in self.test.specs[self.target]:
-            if self.test.results[self.target][command] is None:
-                self.test.results[self.target][command] = (KILLED_STATUS, '')
+            if not command in self.test.results[self.target]:
+                self.test.results[self.target][command] = (message, '')
                 print('\t\t\t' + self.target + SOCKET_DELIMITER + command 
                     + SOCKET_DELIMITER + self.test.results[self.target][command][0]
                     + SOCKET_DELIMITER + self.test.results[self.target][command][1])
@@ -632,7 +641,7 @@ def ask_for_path():
 def evaluate_timeout_status(timeout):
     "evaluate the passed string to see if it's a valid timeout"
 
-    if timeout == 'none':
+    if timeout.lower() == 'none':
         return TIMEOUT_NONE
     else:
         unit = timeout[-1] # Last character in string.
@@ -656,11 +665,11 @@ def instructions():
     print()
     print(r'Usage: NetJobs.py [OPTIONS] [PATH]')
     print(r'OPTIONS')
-    print(r'\t-h    Display this message.')
-    print(r'\t-s    Run in simulator mode (disables networking).')
-    print(r'\t-v    Run in verbose mode.')
+    print(r'    -h    Display this message.')
+    print(r'    -s    Run in simulator mode (disables networking).')
+    print(r'    -v    Run in verbose mode.')
     print(r'PATH')
-    print(r'\tRelative or absolute path to source file (required).')
+    print(r'    Relative or absolute path to source file (required).')
     print()
     print(r'NetJobs.py -v "C:\NetJobs\testconfig.txt"')
     print()
