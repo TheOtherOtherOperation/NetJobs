@@ -2,7 +2,7 @@
 
 Author: Ramon A. Lovato (ramonalovato.com)
 For: DeepStorage, LLC (deepstorage.net)
-Version: 2.0
+Version: 2.1
 
 ## Introduction
 NetJobs is a network job synchronizer written in Python. Its primary use is the synchronization of benchmark jobs running on multiple virtual machines on a vLAN. Since VMs typically do not have regular access to the host machine's system clock, NetJobs aims to provide a service for starting jobs on multiple VMs at approximately the same time. True simultaneity under these conditions is impossible, of course, and NetJobs is no exception. Its aim is to reduce the latency between start times, not eliminate it completely.
@@ -32,6 +32,7 @@ OPTIONS
 	-h Display help message.
 	-s Run in simulator mode (disables networking).
 	-v Run in verbose mode.
+    -l Enable test result logging to file.
 PATH
 	Relative or absolute path to configuration file (required).
 
@@ -40,6 +41,8 @@ Example: $ NetJobs.py -v "C:\NetJobs\testconfig.txt"
 If a configuration file is not provided, NetJobs will ask for one. On completion, NetJobs will print out the output received from each target machine. Running with the -v flag will cause NetJobs to also output its progress at each step.
 
 NetJobs begins by parsing the configuration file and generating a list of test configurations. For each test, it begins by iterating through all targets and opening connections to them. Assuming socket creation was successful, it then performs a simple echo test to verify the connection. If this completes, it sends the target its intended command string and moves to the next. Once it finishes prepping all targets, it goes through the list again and tells each agent to start the run. It then spawns a worker thread to listen for that agent to complete. When all worker threads join, NetJobs outputs the results for that test and moves on to the next.
+
+If -l is specified, a timestamped log file is generated for each test and placed in the same directory as the configuration file.
 
 ### Configuration File
 
@@ -100,6 +103,7 @@ When a command initiated by NetJobsAgent returns, its standard output is piped t
 
 ## Version History
 
+2.1 - Output logging added. Running NetJobs with the -l flag now causes a timestamped log file to be generated for each test, in the same directory as the configuration file.
 2.0 - Release version. Multiple commands now working as intended. Fixed a bug where sometimes the socket would close before all results had been transmitted.
 1.2 - Fixed bugs that caused client to hang while waiting for agent results.
 1.1 - Support for comment lines in config file. Input file parser rebuilt from scratch. Support for specifying multiple commands per agent.

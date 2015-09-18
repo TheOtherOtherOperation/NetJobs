@@ -12,10 +12,11 @@
 #   -h  Display help message.                                                  #
 #   -s  Run in simulator mode (disables networking).                           #
 #   -v  Run in verbose mode.                                                   #
+#   -l  Enable logging of results to a file.                                   #
 # PATH                                                                         #
 #   Relative or absolute path to configuration file (required).                #
 #                                                                              #
-# Example: $ NetJobs.py -v "C:\NetJobs\testconfig.txt"                         #
+# Example: $ NetJobs.py -vl "C:\NetJobs\testconfig.txt"                         #
 # ############################################################################ #
 
 import sys
@@ -34,7 +35,7 @@ from enum import Enum
 # Constants and global variables.                                              #
 # ############################################################################ #
 ARGC_MAX = 3
-ARGS_REGEX = '\-[hsv]+'
+ARGS_REGEX = '\-[hsvl]+'
 FILE_DELIMITER = ': *'
 TEST_LABEL_REGEX = '^[^:]+ *: *$'
 TEST_SPEC_REGEX = '^(\w|\.)+ *: *(\d+ *[hms] *: *)?.*\s*$'
@@ -61,6 +62,7 @@ KILLED_STATUS = 'KILLED'
 
 verbose = False
 simulate = False
+logging = False
 
 # ############################################################################ #
 # NetJobs class.                                                               #
@@ -133,6 +135,9 @@ class NetJobs:
             global verbose
             verbose = True
             print('\nVerbose logging enabled.\n')
+        if 'l' in args:
+            global logging
+            logging = True
 
     #
     # State machine for parsing the input file.
@@ -447,6 +452,28 @@ class NetJobs:
     def stop_and_kill_listeners(self):
         for listener in self.listeners.values():
             listener.kill()
+
+    #
+    # Write results to log file.
+    #
+    def logResults(self, test):
+        timestamp = test.timestamp.replace(':', '.')
+        path_out = self.path_in + '_' + test.label + '_' + timestamp + '.log'
+        try:
+            with open(path_out, 'wb') as f:
+                for target in test.results.keys():
+                    for command in test.results[target]:
+                        if test.results[target][command] != None:
+                            logString = bytes(target + SOCKET_DELIMITER + command + SOCKET_DELIMITER
+                                        + test.results[target][command][0] + SOCKET_DELIMITER
+                                        + test.results[target][command][1] + '\n', 'utf-8')
+                        else:
+                            logString = bytes(target + SOCKET_DELIMITER + command + SOCKET_DELIMITER
+                                        + ERROR_STATUS + SOCKET_DELIMITER + SOCKET_DELIMITER
+                                        + '\n', 'utf-8')
+                        f.write(logString)
+        except IOError as e:
+            print('Error writing log file %s: %s.' % (path_out, str(e)))
     
     #
     # Start.
@@ -473,6 +500,9 @@ class NetJobs:
 
             # Wait for remote agent return status.
             self.wait_for_results(test)
+            # Log output if enabled.
+            if logging:
+                self.logResults(test)
             # Clean up.
             self.clean_up(test)
 
