@@ -716,11 +716,11 @@ def terminate():
 #
 # Main.
 #
-def main():
+def main(argv):
     "main function"
 
     # Create NetJobs object to handle the work.
-    jobs = NetJobs(sys.argv)
+    jobs = NetJobs(argv)
 
     # Run.
     jobs.start()
@@ -734,4 +734,4 @@ def main():
 # Execute main.                                                                #
 # ############################################################################ #
 if __name__ == '__main__':
-    main()
+    main(sys.argv)
