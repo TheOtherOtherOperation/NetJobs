@@ -728,7 +728,7 @@ def main():
     # Finish.
     if verbose:
         print('All jobs completed.')
-    exit(0)
+    return
 
 # ############################################################################ #
 # Execute main.                                                                #
