@@ -319,7 +319,7 @@ class ProcThread(threading.Thread):
         startTime = time.time()
         try:
             while self.running and self.proc.poll() is None: # Checks returncode attribute.
-                print(self.proc.stdout.readline())
+                print(self.proc.stdout.readline().decode('UTF-8'))
                 elapsedTime = time.time() - startTime
                 # If timeout exceeded and subprocess is still running. Short-circuits
                 # if self.timeout is None.
