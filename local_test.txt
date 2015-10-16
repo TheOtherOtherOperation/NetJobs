@@ -1,5 +1,0 @@
-test0:
--generaltimeout: 1m
--minhosts: all
-localhost: "python sleep10.py"
-end

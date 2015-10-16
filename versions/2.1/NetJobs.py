@@ -5,7 +5,7 @@
 #                                                                              #
 # Author: Ramon A. Lovato (ramonalovato.com)                                   #
 # For: Deepstorage, LLC (deepstorage.net)                                      #
-# Version: 2.2                                                                 #
+# Version: 2.1                                                                 #
 #                                                                              #
 # Usage: NetJobs.py [OPTIONS] [PATH]                                           #
 # OPTIONS                                                                      #
@@ -55,8 +55,6 @@ READY_STRING = '// READY //'
 START_STRING = '// START //'
 KILL_STRING = '// KILL //'
 DONE_STRING = '// DONE //'
-PING_STATUS_STRING = '// STATUS //'
-PING_OK_STRING = 'OK'
 SUCCESS_STATUS = 'SUCCESS'
 ERROR_STATUS = 'ERROR'
 TIMEOUT_STATUS = 'TIMEOUT'
@@ -476,13 +474,6 @@ class NetJobs:
                         f.write(logString)
         except IOError as e:
             print('Error writing log file %s: %s.' % (path_out, str(e)))
-
-    #
-    # Ping agents with a status request.
-    #
-    def ping_agent_status(self):
-        for listener in filter(lambda l: l.running, self.listeners.values()):
-            listener.ping_status_check()
     
     #
     # Start.
@@ -557,8 +548,6 @@ class TestConfig:
                         timeout = t
             self.listenerTimeouts[target] = timeout
 
-            self.successesReceived = 0
-
         # Used for log file.
         self.timestamp = datetime.datetime.now().isoformat()
 
@@ -576,21 +565,15 @@ class ListenThread(threading.Thread):
         self.netJobs = netJobs
         self.test = test
         self.running = False
-        self.pingActive = False
-        self.pingStart = None
 
     def run(self):
         self.running = True
         startTime = time.time()
         try:
             while self.running:
-                currentTime = time.time()
-                elapsedTime = currentTime - startTime
+                elapsedTime = time.time() - startTime
                 # Check for timeout.
                 if not self.timeout == TIMEOUT_NONE and elapsedTime >= self.timeout:
-                    self.handle_timeout()
-                # Check for ping timeout.
-                elif self.pingActive and currentTime - self.pingStart >= SOCKET_TIMEOUT:
                     self.handle_timeout()
                 else:
                     # Wait for result to be transmitted from agent.
@@ -634,10 +617,9 @@ class ListenThread(threading.Thread):
 
         if DONE_STRING == message:
             self.running = False
+            # If any tasks are still incomplete, treat as timeout.
             if verbose:
                 print('\t\t\t\t-- %s reported all jobs complete.' % self.target)
-        elif PING_OK_STRING == message:
-            self.pingActive = False
         else:
             if count < 4:
                 # Messages sent here should always have 4 tokens each, even if some
@@ -656,12 +638,6 @@ class ListenThread(threading.Thread):
             # Print.
             print('\t\t\t%s' % message)
 
-            # Ping test.
-            if status == SUCCESS_STATUS:
-                self.test.successesReceived += 1
-                if self.test.successesReceived >= self.test.minHosts:
-                    self.netJobs.ping_agent_status()
-
     def update_incomplete_and_print(self, message):
         for command in self.test.specs[self.target]:
             if not command in self.test.results[self.target]:
@@ -669,15 +645,6 @@ class ListenThread(threading.Thread):
                 print('\t\t\t' + self.target + SOCKET_DELIMITER + command 
                     + SOCKET_DELIMITER + self.test.results[self.target][command][0]
                     + SOCKET_DELIMITER + self.test.results[self.target][command][1])
-
-    def ping_status_check(self):
-        if self.running and not self.pingActive:
-            try:
-                self.sock.sendall(bytes(PING_STATUS_STRING + '\n', 'UTF-8'))
-            except Exception as e:
-                self.handle_timeout
-            self.pingStart = time.time()
-            self.pingActive = True
         
 
 # ############################################################################ #

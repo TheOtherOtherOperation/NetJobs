@@ -1,0 +1,3 @@
+BUGS
+
+If the configuration file has a generaltimout of none the master appears to lock up.

@@ -1,0 +1,16 @@
+test0:
+-generaltimeout: none
+-minhosts: 0
+localhost: "echo 'hello, world'"
+-timeout: 1s
+end
+
+test1:
+-generaltimeout: 2s
+-minhosts: 0
+localhost: "python sleep10.py"
+localhost: "echo 'hello, world'"
+localhost: "python sleep1.py"
+localhost: "python sleep5.py"
+localhost: "echo 'goodbye, world'"
+end
