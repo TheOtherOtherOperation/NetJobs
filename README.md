@@ -1,7 +1,7 @@
 # NetJobs
 
 ## License
-Copyright (c) 2015 DeepStorage, LLC (deepstorage.net) and Ramon A. Lovato (ramonalovato.com).
+Copyright (c) 2016 DeepStorage, LLC (deepstorage.net) and Ramon A. Lovato (ramonalovato.com).
 
 See the file LICENSE for copying permission.
 
@@ -120,4 +120,4 @@ When a command initiated by NetJobsAgent returns, its standard output is piped t
 
 
 
-This document was last updated on 11/06/15.
+This document was last updated on 01/06/16.
