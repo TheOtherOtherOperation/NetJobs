@@ -1,7 +1,7 @@
 # NetJobs
 
 ## License
-Copyright (c) 2015 DeepStorage, LLC (deepstorage.net) and Ramon A. Lovato (ramonalovato.com).
+Copyright (c) 2016 DeepStorage, LLC (deepstorage.net) and Ramon A. Lovato (ramonalovato.com).
 
 See the file LICENSE for copying permission.
 
